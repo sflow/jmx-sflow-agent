@@ -1,0 +1,3 @@
+Manifest-Version: 3.3
+Premain-Class: com.sflow.jmx.SFlowAgent
+

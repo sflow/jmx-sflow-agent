@@ -1,0 +1,613 @@
+package com.sflow.jmx;
+
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.CharacterCodingException;
+import java.nio.CharBuffer;
+import java.io.File;
+import java.io.FileReader;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetSocketAddress;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.UUID;
+import java.lang.management.ManagementFactory;
+import java.lang.management.OperatingSystemMXBean;
+import java.lang.management.MemoryManagerMXBean;
+import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.RuntimeMXBean;
+import java.lang.management.ThreadMXBean;
+import java.lang.management.MemoryMXBean;
+import java.lang.management.ClassLoadingMXBean;
+import java.lang.management.CompilationMXBean;
+import java.lang.management.MemoryUsage;
+import java.lang.instrument.Instrumentation;
+
+public class SFlowAgent extends Thread {
+    private static final String DEFAULT_CONFIG_FILE = "/etc/hsflowd.auto";
+
+    static String configFile = DEFAULT_CONFIG_FILE;
+    private static long lastConfigFileChange = 0L;
+
+    private static final byte[] EMPTY = {};
+
+    private static final int DEFAULT_SFLOW_PORT      = 6343;
+    private static final int DEFAULT_DS_INDEX        = 200000;
+    private static final int DEFAULT_PARENT_DS_INDEX = 1;
+    private static final int OS_NAME_JAVA            = 13;
+    private static final int MACHINE_TYPE_UNKNOWN    = 0;
+    private static final int DS_CLASS_PHYSICAL       = 2;
+    private static final int DS_CLASS_LOGICAL        = 3;
+    private static final int VIR_DOMAIN_RUNNING      = 1;
+
+    public static UUID myUUID        = null;
+    public static String myHostname  = null;
+
+    private static int dsIndex       = -1;
+    private static int parentDsIndex = -1;
+
+    public static void configFile(String fn) {
+	configFile = fn;
+	lastConfigFileChange = 0L;
+    }
+    public static String configFile() { return configFile; }
+
+    public static void uuid(UUID uuid) { myUUID = uuid; };
+    public static UUID uuid() {
+      if(myUUID != null) return myUUID;
+
+      String uuidStr = System.getProperty("sflow.uuid");
+      if(uuidStr != null) {
+        try { myUUID = UUID.fromString(uuidStr); }
+        catch(IllegalArgumentException e) { ; }
+      }
+      if(myUUID != null) return myUUID;
+
+      myUUID = new UUID(0L,0L); 
+      return myUUID;
+    }
+
+    public static void hostname(String hostname) { myHostname = hostname; }
+    public static String hostname() {
+      if(myHostname != null) return myHostname;
+
+      myHostname = System.getProperty("sflow.hostname");
+      if(myHostname != null) return myHostname;
+
+      RuntimeMXBean runtimeMX = ManagementFactory.getRuntimeMXBean();
+      myHostname = runtimeMX.getName();
+      return myHostname;
+    }
+
+    public static void dsIndex(int idx) { dsIndex = idx; }
+    public static int dsIndex() {
+      if(dsIndex > 0) return dsIndex;
+
+      String indexStr = System.getProperty("sflow.dsindex");
+      if(indexStr != null) {
+        try { dsIndex = Integer.parseInt(indexStr); }
+        catch(NumberFormatException e) { ; }
+      }
+      if(dsIndex > 0) return dsIndex;
+
+      dsIndex = DEFAULT_DS_INDEX;
+      return dsIndex;
+    }
+
+    private int agentSequenceNo = 0;
+    private int counterSequenceNo = 0;
+    private long agentStartTime = 0L;
+
+    private DatagramSocket socket = null;
+
+    private long pollingInterval = 0L;
+    private byte[] agentAddress = null;
+    private ArrayList<InetSocketAddress> destinations;
+
+    // update configuration
+    private void updateConfig() {
+	File file = new File(configFile);
+	if(!file.exists()) return;
+
+	long modified = file.lastModified();
+	if(modified == lastConfigFileChange) return;
+
+	lastConfigFileChange = modified;
+
+	String rev_start = null;
+	String rev_end   = null;
+	String sampling  = null;
+	String polling   = null;
+	String agentIP   = null;
+        String parent    = null;
+	ArrayList<String> collectors = null;
+	try {
+	    BufferedReader br = new BufferedReader(new FileReader(file));
+	    try {
+		String line;
+		while((line = br.readLine()) != null) {
+		    if(line.startsWith("#")) continue;
+		    int idx = line.indexOf('=');
+		    if(idx < 0) continue;
+		    String key = line.substring(0,idx).trim();
+		    String value = line.substring(idx + 1).trim();
+		    if("rev_start".equals(key)) rev_start = value;
+		    else if("polling".equals(key)) polling = value;
+		    else if("agentIP".equals(key)) agentIP = value;
+                    else if("ds_index".equals(key)) parent = value;
+		    else if("collector".equals(key)) {
+			if(collectors == null) collectors = new ArrayList();
+			collectors.add(value);
+		    }
+		    else if("rev_end".equals(key)) rev_end = value;
+		}
+	    } finally { br.close(); }
+	} catch (IOException e) {}
+
+	if(rev_start != null && rev_start.equals(rev_end)) {
+	    lastConfigFileChange = modified;
+
+	    // set polling interval
+	    if(polling != null) {
+		try {
+		    long seconds = Long.parseLong(polling);
+		    pollingInterval = seconds * 1000L;
+		} catch(NumberFormatException e) {
+		    pollingInterval = 0L;
+		};
+	    }
+	    else pollingInterval = 0L;
+
+	    // set agent address
+	    if(agentIP != null) agentAddress = addressToBytes(agentIP);
+	    else agentAddress = null;
+
+            // set parent
+            if(parent != null) {
+               try { parentDsIndex = Integer.parseInt(parent); }
+               catch(NumberFormatException e) {
+                  parentDsIndex = DEFAULT_PARENT_DS_INDEX;
+               }
+            }
+            else parentDsIndex = DEFAULT_PARENT_DS_INDEX;
+
+	    // set collectors
+	    if(collectors != null) {
+		ArrayList<InetSocketAddress> newSockets = new ArrayList();
+		for(String socketStr : collectors) {
+		    String[] parts = socketStr.split(" ");
+		    InetAddress addr = null;
+		    try { addr = InetAddress.getByName(parts[0]); }
+		    catch(UnknownHostException e) {}
+		    if(addr != null) {
+			int port = DEFAULT_SFLOW_PORT;
+			if(parts.length == 2) {
+			    try { port = Integer.parseInt(parts[1]); }
+			    catch(NumberFormatException e) {};
+			}
+			newSockets.add(new InetSocketAddress(addr,port));
+		    }
+		}
+		destinations = newSockets;
+	    }
+	    else destinations = null;
+	}
+    }
+
+    // XDR utilty functions
+
+    public static int pad(int len) { return (4 - len) & 3; }
+
+    public static int xdrInt(byte[] buf,int offset,int val) {
+	int i = offset;
+	buf[i++] = (byte)(val >>> 24);
+	buf[i++] = (byte)(val >>> 16);
+	buf[i++] = (byte)(val >>> 8);
+	buf[i++] = (byte)val;
+	return i;
+    }
+
+    public static int xdrLong(byte[] buf, int offset, long val) {
+	int i = offset;
+	buf[i++] = (byte)(val >>> 56);
+	buf[i++] = (byte)(val >>> 48);
+	buf[i++] = (byte)(val >>> 40);
+	buf[i++] = (byte)(val >>> 32);
+	buf[i++] = (byte)(val >>> 24);
+	buf[i++] = (byte)(val >>> 16);
+	buf[i++] = (byte)(val >>> 8);
+	buf[i++] = (byte)val;
+	return i;
+    }
+
+    public static byte[] stringToBytes(String string, int maxLen) {
+	CharsetEncoder enc = Charset.forName("UTF8").newEncoder();
+	enc.onMalformedInput(CodingErrorAction.REPORT);
+	enc.onUnmappableCharacter(CodingErrorAction.REPLACE);
+	byte[] bytes = null;
+	try { bytes = enc.encode(CharBuffer.wrap(string)).array();}
+	catch(CharacterCodingException e) { ; }
+
+	if(bytes != null && maxLen > 0 && bytes.length > maxLen) {
+	    byte[] original = bytes;
+	    bytes = new byte[maxLen];
+	    System.arraycopy(original,0,bytes,0,maxLen);
+	}
+	return bytes;
+    }
+
+
+    public static int xdrBytes(byte[] buf, int offset, byte[] val, int pad, boolean varLen) {
+	int i = offset;
+	if(varLen) i = xdrInt(buf,i,val.length);
+	System.arraycopy(val,0,buf,i,val.length);
+	i+=val.length;
+	for(int j = 0; j < pad; j++) buf[i++] = 0;
+	return i;
+    }
+
+    public static int xdrBytes(byte[] buf, int offset, byte[] val, int pad) {
+	return xdrBytes(buf,offset,val,pad,false);
+    }
+
+    public static int xdrBytes(byte[] buf, int offset, byte[] val) {
+	return xdrBytes(buf,offset,val,0);
+    }
+
+    public static int xdrDatasource(byte[] buf, int offset, int ds_class, int ds_index) {
+	int i = offset;
+
+	buf[i++] = (byte)ds_class;
+	buf[i++] = (byte)(ds_index >>> 16);
+	buf[i++] = (byte)(ds_index >>> 8);
+	buf[i++] = (byte)ds_index;
+
+	return i;
+    }
+
+    public static int xdrUUID(byte[] buf, int offset, UUID uuid) {
+	int i = offset;
+
+	i = xdrLong(buf,i,uuid.getMostSignificantBits());
+	i = xdrLong(buf,i,uuid.getLeastSignificantBits());  
+
+	return i;
+    }
+
+    private static byte[] addressToBytes(String address) {
+	if(address == null) return null;
+
+	byte[] bytes = null;
+	try {
+	    InetAddress addr = InetAddress.getByName(address);
+	    if(addr != null) bytes = addr.getAddress();
+	} catch(UnknownHostException e) {
+	    bytes = null;
+	}
+	return bytes;
+    }
+
+    // send sFlow datagram
+    private void sendDatagram(byte[] datagram, int len) {
+	if(socket == null) return;
+
+	for (InetSocketAddress dest : destinations) {
+	    try {
+		DatagramPacket packet = new DatagramPacket(datagram,len,dest);
+		socket.send(packet);
+	    } catch(IOException e) {}
+	}
+    }
+
+    // create sFlow datagram
+
+    // maximum length needed to accomodate IPv6 agent address
+    static final int header_len = 36;
+    private int xdrSFlowHeader(byte[] buf, int offset) {
+	int i = offset;
+
+	RuntimeMXBean runtimeMX = ManagementFactory.getRuntimeMXBean();
+
+	int addrType = agentAddress.length == 4 ? 1 : 2;
+	i = xdrInt(buf,i,5);
+	i = xdrInt(buf,i,addrType);
+	i = xdrBytes(buf,i,agentAddress,pad(agentAddress.length));
+	i = xdrInt(buf,i,dsIndex());
+	i = xdrInt(buf,i,agentSequenceNo++);
+	i = xdrInt(buf,i,(int)runtimeMX.getUptime());
+
+	return i;
+    }
+
+    static final int host_parent_len = 8;
+    static final int virt_cpu_len = 12;
+    static final int virt_memory_len = 16;
+    static final int jmx_memory_len =64;
+    static final int jmx_gc_len = 8;
+    static final int jmx_classloading_len = 12;
+    static final int jmx_compilation_len = 4;
+    static final int jmx_thread_len = 12;
+
+    static final int num_counter_records = 10;
+
+    private long totalThreadTime = 0L;
+    private HashMap<Long,Long> prevThreadCpuTime = null;
+    static final int counter_data_len = 512;
+    private int xdrCounterSample(byte[] buf, int offset) {
+	int i = offset;
+
+	RuntimeMXBean runtimeMX = ManagementFactory.getRuntimeMXBean();
+
+	String hostnameStr = hostname();
+	byte[] hostname = hostnameStr != null ? stringToBytes(hostnameStr,64) : EMPTY;
+	int hostname_pad = pad(hostname.length);
+
+	UUID uuid = uuid();
+
+	String os_releaseStr = System.getProperty("java.version");
+	byte[] os_release = os_releaseStr != null ? stringToBytes(os_releaseStr,32) : EMPTY;
+	int os_release_pad = pad(os_release.length);
+
+	int host_descr_len = hostname.length + hostname_pad 
+	    + os_release.length + os_release_pad 
+	    + 32;
+
+	String vm_nameStr = runtimeMX.getVmName();
+	byte[] vm_name = vm_nameStr != null ? stringToBytes(vm_nameStr,64) : EMPTY;
+	int vm_name_pad = pad(vm_name.length);
+
+	String vm_vendorStr = runtimeMX.getVmVendor();
+	byte[] vm_vendor = vm_vendorStr != null ? stringToBytes(vm_vendorStr,32) : EMPTY;
+	int vm_vendor_pad = pad(vm_vendor.length);
+
+	String vm_versionStr = runtimeMX.getVmVersion();
+	byte[] vm_version = vm_versionStr != null ? stringToBytes(vm_versionStr,32) : EMPTY;
+	int vm_version_pad = pad(vm_version.length);
+
+	int jmx_runtime_len = vm_name.length + vm_name_pad 
+	    + vm_vendor.length + vm_vendor_pad 
+	    + vm_version.length + vm_version_pad 
+	    + 12;
+
+	int counter_sample_len = host_descr_len 
+	    + host_parent_len
+	    + virt_cpu_len 
+	    + virt_memory_len 
+	    + jmx_runtime_len 
+	    + jmx_memory_len 
+	    + jmx_gc_len 
+	    + jmx_classloading_len 
+	    + jmx_compilation_len 
+	    + jmx_thread_len
+	    + (num_counter_records * 8)
+	    + 12;
+
+	List<GarbageCollectorMXBean> gcMXList = ManagementFactory.getGarbageCollectorMXBeans();
+        int gcCount = 0;
+        int gcTime = 0;
+        for(GarbageCollectorMXBean gcMX : gcMXList)  {
+          gcCount += gcMX.getCollectionCount();
+          gcTime += gcMX.getCollectionTime();
+        }
+
+	CompilationMXBean compilationMX = ManagementFactory.getCompilationMXBean();
+	long compilationTime = 0L;
+        if(compilationMX.isCompilationTimeMonitoringSupported()) {
+          compilationTime = compilationMX.getTotalCompilationTime();
+        }
+
+	long cpuTime = 0L;
+	ThreadMXBean threadMX = ManagementFactory.getThreadMXBean();
+	OperatingSystemMXBean osMX = ManagementFactory.getOperatingSystemMXBean();
+	if (osMX instanceof com.sun.management.OperatingSystemMXBean) {
+	    cpuTime = ((com.sun.management.OperatingSystemMXBean)osMX).getProcessCpuTime();
+	    cpuTime /= 1000000L;
+	} else {
+	    if(threadMX.isThreadCpuTimeEnabled()) {
+		long[] ids = threadMX.getAllThreadIds();
+		HashMap<Long,Long> threadCpuTime = new HashMap();
+		for(int t = 0; t < ids.length; t++) {
+		    long id = ids[t];
+		    if(id >= 0) {
+			long threadtime = threadMX.getThreadCpuTime(id);
+			if(threadtime >= 0) {
+			    threadCpuTime.put(id,threadtime);
+			    long prev = 0L;
+			    if(prevThreadCpuTime != null) {
+				Long prevl = prevThreadCpuTime.get(id);
+				if(prevl != null) prev = prevl.longValue();
+			    }
+			    if(prev <= threadtime) totalThreadTime += (threadtime - prev);
+			    else totalThreadTime += threadtime;
+			}
+		    }
+		}
+		cpuTime = (totalThreadTime / 1000000L) + gcTime + compilationTime;
+		prevThreadCpuTime = threadCpuTime;
+	    }
+	}
+
+	MemoryMXBean memoryMX = ManagementFactory.getMemoryMXBean();
+        MemoryUsage heapMemory =  memoryMX.getHeapMemoryUsage();
+	MemoryUsage nonHeapMemory = memoryMX.getNonHeapMemoryUsage();
+   
+	int nrVirtCpu = osMX.getAvailableProcessors();
+
+	long memory = heapMemory.getCommitted() + nonHeapMemory.getCommitted();
+	long maxMemory = heapMemory.getMax() + nonHeapMemory.getCommitted(); 
+
+	ClassLoadingMXBean classLoadingMX = ManagementFactory.getClassLoadingMXBean();
+
+	// sample_type = counter_sample
+	i = xdrInt(buf,i,2);
+	i = xdrInt(buf,i, counter_sample_len);
+	i = xdrInt(buf,i,counterSequenceNo++);
+	i = xdrDatasource(buf,i,DS_CLASS_LOGICAL,dsIndex());
+	i = xdrInt(buf,i,num_counter_records);
+
+	// host_descr
+	i = xdrInt(buf,i,2000);
+	i = xdrInt(buf,i,host_descr_len); 
+	i = xdrBytes(buf,i,hostname,hostname_pad,true);
+	i = xdrUUID(buf,i,uuid);
+	i = xdrInt(buf,i,MACHINE_TYPE_UNKNOWN);
+	i = xdrInt(buf,i,OS_NAME_JAVA);
+	i = xdrBytes(buf,i,os_release,os_release_pad,true);
+
+	// host_adapters
+	// i = xdrInt(buf,i,2001)
+	// Java does not create virtual network interfaces
+	// Note: sFlow sub-agent on host OS reports host network adapters
+
+	// host_parent
+	i = xdrInt(buf,i,2002);
+	i = xdrInt(buf,i,host_parent_len);
+	i = xdrInt(buf,i,DS_CLASS_PHYSICAL);
+	i = xdrInt(buf,i,parentDsIndex);
+
+	// virt_cpu
+	i = xdrInt(buf,i,2101);
+	i = xdrInt(buf,i,virt_cpu_len);
+	i = xdrInt(buf,i,VIR_DOMAIN_RUNNING);
+	i = xdrInt(buf,i,(int)cpuTime);
+	i = xdrInt(buf,i,nrVirtCpu);
+ 
+	// virt_memory
+	i = xdrInt(buf,i,2102);
+	i = xdrInt(buf,i,virt_memory_len);
+	i = xdrLong(buf,i,memory);
+	i = xdrLong(buf,i,maxMemory);
+
+	// virt_disk_io
+	// i = xdrInt(buf,i,2103);
+	// Currently no JMX bean providing JVM disk I/O stats
+	// Note: sFlow sub-agent on host OS provides overall disk I/O stats
+
+	// virt_net_io
+	// i = xdrInt(buf,i,2104);
+	// Currently no JMX bena providing JVM network I/O stats
+	// Note: sFlow sub-agent on host OS provides overall network I/O stats
+
+	// jmx_runtime
+	i = xdrInt(buf,i,2105);
+	i = xdrInt(buf,i,jmx_runtime_len);
+	i = xdrBytes(buf,i,vm_name,vm_name_pad,true);
+	i = xdrBytes(buf,i,vm_vendor,vm_vendor_pad,true);
+	i = xdrBytes(buf,i,vm_version,vm_version_pad,true);
+
+	// jmx_memory
+	i = xdrInt(buf,i,2106);
+	i = xdrInt(buf,i,jmx_memory_len);
+	i = xdrLong(buf,i,heapMemory.getInit());
+	i = xdrLong(buf,i,heapMemory.getUsed());
+	i = xdrLong(buf,i,heapMemory.getCommitted());
+	i = xdrLong(buf,i,heapMemory.getMax());
+	i = xdrLong(buf,i,nonHeapMemory.getInit());
+	i = xdrLong(buf,i,nonHeapMemory.getUsed());
+	i = xdrLong(buf,i,nonHeapMemory.getCommitted());
+	i = xdrLong(buf,i,nonHeapMemory.getMax());
+
+	// jmx_garbagecollector
+	i = xdrInt(buf,i,2107);
+	i = xdrInt(buf,i,jmx_gc_len);
+	i = xdrInt(buf,i,gcCount);
+	i = xdrInt(buf,i,gcTime);
+
+	// jmx_classloading
+	i = xdrInt(buf,i,2108);
+	i = xdrInt(buf,i,jmx_classloading_len);
+	i = xdrInt(buf,i,(int)classLoadingMX.getLoadedClassCount());
+	i = xdrInt(buf,i,(int)classLoadingMX.getTotalLoadedClassCount());
+	i = xdrInt(buf,i,(int)classLoadingMX.getUnloadedClassCount());
+
+	// jmx_compliation
+	i = xdrInt(buf,i,2109);
+	i = xdrInt(buf,i,jmx_compilation_len);
+	i = xdrInt(buf,i,(int)compilationTime);
+
+	// jmx_thread
+	i = xdrInt(buf,i,2110);
+	i = xdrInt(buf,i,jmx_thread_len);
+	i = xdrInt(buf,i,threadMX.getThreadCount());
+	i = xdrInt(buf,i,threadMX.getDaemonThreadCount());
+	i = xdrInt(buf,i,(int)threadMX.getTotalStartedThreadCount());
+ 
+	return i;
+    }
+
+    public void pollCounters(long now) {
+	if(agentAddress == null) return;
+
+	byte[] buf = new byte[header_len + 1 + counter_data_len];
+
+	int i = 0;
+
+	i = xdrSFlowHeader(buf,i);
+	i = xdrInt(buf,i,1);
+	i = xdrCounterSample(buf,i);
+
+	sendDatagram(buf,i);
+    }
+
+    private long lastPollCounters = 0L;
+
+    public void run() {
+
+	agentStartTime = System.currentTimeMillis();
+
+	try { socket = new DatagramSocket(); }
+	catch(SocketException e) {}
+
+	while(running) {
+	    updateConfig();
+	    if(pollingInterval > 0L) {
+		long now = System.currentTimeMillis();
+		if((now - lastPollCounters) > pollingInterval) {
+		    lastPollCounters = now;
+		    pollCounters(now);
+		}
+	    }
+
+	    try { sleep(10000); }
+	    catch(InterruptedException e) {};
+	} 
+
+	if(socket != null) socket.close();
+    } 
+
+    private static SFlowAgent task = null;
+    private static boolean running = false; 
+
+    public static synchronized void startAgentTask() {
+	if(running) return;
+
+	running = true;
+	task = new SFlowAgent();
+	task.setPriority(Thread.MIN_PRIORITY);
+	task.start();
+    }  
+
+    public static synchronized void stopAgentTask() {
+	if(!running) return;
+	
+	running = false;
+	task.interrupt();
+	try { task.join(); }
+	catch(InterruptedException e) {};
+
+	task = null;
+    }
+
+    public static void premain(String agentArgs, Instrumentation inst) {
+       SFlowAgent.startAgentTask();
+    }
+}
