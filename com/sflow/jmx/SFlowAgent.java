@@ -42,7 +42,6 @@ public class SFlowAgent extends Thread {
 
     private static final int DEFAULT_SFLOW_PORT      = 6343;
     private static final int DEFAULT_DS_INDEX        = 200000;
-    private static final int DEFAULT_PARENT_DS_INDEX = 1;
     private static final int OS_NAME_JAVA            = 13;
     private static final int MACHINE_TYPE_UNKNOWN    = 0;
     private static final int DS_CLASS_PHYSICAL       = 2;
@@ -52,7 +51,7 @@ public class SFlowAgent extends Thread {
     public static UUID myUUID        = null;
     public static String myHostname  = null;
 
-    private static int dsIndex       = -1;
+    private static int dsIndex       = DEFAULT_DS_INDEX;
     private static int parentDsIndex = -1;
 
     public static void configFile(String fn) {
@@ -175,10 +174,10 @@ public class SFlowAgent extends Thread {
             if(parent != null) {
                try { parentDsIndex = Integer.parseInt(parent); }
                catch(NumberFormatException e) {
-                  parentDsIndex = DEFAULT_PARENT_DS_INDEX;
+                  parentDsIndex = -1;
                }
             }
-            else parentDsIndex = DEFAULT_PARENT_DS_INDEX;
+            else parentDsIndex = -1;
 
 	    // set collectors
 	    if(collectors != null) {
@@ -445,14 +444,16 @@ public class SFlowAgent extends Thread {
 	// Java does not create virtual network interfaces
 	// Note: sFlow sub-agent on host OS reports host network adapters
 
-	// host_parent
-	i = xdrInt(buf,i,2002);
-        opaque_len_idx = i;
-        i += 4;
-	i = xdrInt(buf,i,DS_CLASS_PHYSICAL);
-	i = xdrInt(buf,i,parentDsIndex);
-        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
-        sample_nrecs++;
+        if(parentDsIndex > 0) {
+	  // host_parent
+	  i = xdrInt(buf,i,2002);
+          opaque_len_idx = i;
+          i += 4;
+	  i = xdrInt(buf,i,DS_CLASS_PHYSICAL);
+	  i = xdrInt(buf,i,parentDsIndex);
+          xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+          sample_nrecs++;
+        }
 
 	// virt_cpu
 	i = xdrInt(buf,i,2101);
