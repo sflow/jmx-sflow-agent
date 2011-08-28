@@ -263,6 +263,12 @@ public class SFlowAgent extends Thread {
 	return xdrBytes(buf,offset,val,0);
     }
 
+    public static int xdrString(byte[] buf, int offset, String str, int maxLen) {
+        byte[] bytes = str != null ? stringToBytes(str,maxLen) : EMPTY;
+        int pad = pad(bytes.length);
+        return xdrBytes(buf,offset,bytes,pad,true);
+    }
+
     public static int xdrDatasource(byte[] buf, int offset, int ds_class, int ds_index) {
 	int i = offset;
 
@@ -347,49 +353,14 @@ public class SFlowAgent extends Thread {
 
 	RuntimeMXBean runtimeMX = ManagementFactory.getRuntimeMXBean();
 
-	String hostnameStr = hostname();
-	byte[] hostname = hostnameStr != null ? stringToBytes(hostnameStr,64) : EMPTY;
-	int hostname_pad = pad(hostname.length);
+	String hostname = hostname();
 
 	UUID uuid = uuid();
 
-	String os_releaseStr = System.getProperty("java.version");
-	byte[] os_release = os_releaseStr != null ? stringToBytes(os_releaseStr,32) : EMPTY;
-	int os_release_pad = pad(os_release.length);
-
-	int host_descr_len = hostname.length + hostname_pad 
-	    + os_release.length + os_release_pad 
-	    + 32;
-
-	String vm_nameStr = runtimeMX.getVmName();
-	byte[] vm_name = vm_nameStr != null ? stringToBytes(vm_nameStr,64) : EMPTY;
-	int vm_name_pad = pad(vm_name.length);
-
-	String vm_vendorStr = runtimeMX.getVmVendor();
-	byte[] vm_vendor = vm_vendorStr != null ? stringToBytes(vm_vendorStr,32) : EMPTY;
-	int vm_vendor_pad = pad(vm_vendor.length);
-
-	String vm_versionStr = runtimeMX.getVmVersion();
-	byte[] vm_version = vm_versionStr != null ? stringToBytes(vm_versionStr,32) : EMPTY;
-	int vm_version_pad = pad(vm_version.length);
-
-	int jmx_runtime_len = vm_name.length + vm_name_pad 
-	    + vm_vendor.length + vm_vendor_pad 
-	    + vm_version.length + vm_version_pad 
-	    + 12;
-
-	int counter_sample_len = host_descr_len 
-	    + host_parent_len
-	    + virt_cpu_len 
-	    + virt_memory_len 
-	    + jmx_runtime_len 
-	    + jmx_memory_len 
-	    + jmx_gc_len 
-	    + jmx_classloading_len 
-	    + jmx_compilation_len 
-	    + jmx_thread_len
-	    + (num_counter_records * 8)
-	    + 12;
+	String os_release = System.getProperty("java.version");
+	String vm_name = runtimeMX.getVmName();
+	String vm_vendor = runtimeMX.getVmVendor();
+	String vm_version = runtimeMX.getVmVersion();
 
 	List<GarbageCollectorMXBean> gcMXList = ManagementFactory.getGarbageCollectorMXBeans();
         int gcCount = 0;
@@ -449,19 +420,25 @@ public class SFlowAgent extends Thread {
 
 	// sample_type = counter_sample
 	i = xdrInt(buf,i,2);
-	i = xdrInt(buf,i, counter_sample_len);
+        int sample_len_idx = i;
+        i += 4;
 	i = xdrInt(buf,i,counterSequenceNo++);
 	i = xdrDatasource(buf,i,DS_CLASS_LOGICAL,dsIndex());
-	i = xdrInt(buf,i,num_counter_records);
+        int sample_nrecs_idx = i;
+        int sample_nrecs = 0;
+        i += 4;
 
 	// host_descr
 	i = xdrInt(buf,i,2000);
-	i = xdrInt(buf,i,host_descr_len); 
-	i = xdrBytes(buf,i,hostname,hostname_pad,true);
+        int opaque_len_idx = i;
+        i += 4;
+	i = xdrString(buf,i,hostname,64);
 	i = xdrUUID(buf,i,uuid);
 	i = xdrInt(buf,i,MACHINE_TYPE_UNKNOWN);
 	i = xdrInt(buf,i,OS_NAME_JAVA);
-	i = xdrBytes(buf,i,os_release,os_release_pad,true);
+	i = xdrString(buf,i,os_release,32);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// host_adapters
 	// i = xdrInt(buf,i,2001)
@@ -470,22 +447,31 @@ public class SFlowAgent extends Thread {
 
 	// host_parent
 	i = xdrInt(buf,i,2002);
-	i = xdrInt(buf,i,host_parent_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrInt(buf,i,DS_CLASS_PHYSICAL);
 	i = xdrInt(buf,i,parentDsIndex);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// virt_cpu
 	i = xdrInt(buf,i,2101);
-	i = xdrInt(buf,i,virt_cpu_len);
+        opaque_len_idx = i;
+        i += 4; 
 	i = xdrInt(buf,i,VIR_DOMAIN_RUNNING);
 	i = xdrInt(buf,i,(int)cpuTime);
 	i = xdrInt(buf,i,nrVirtCpu);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
  
 	// virt_memory
 	i = xdrInt(buf,i,2102);
-	i = xdrInt(buf,i,virt_memory_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrLong(buf,i,memory);
 	i = xdrLong(buf,i,maxMemory);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// virt_disk_io
 	// i = xdrInt(buf,i,2103);
@@ -499,14 +485,18 @@ public class SFlowAgent extends Thread {
 
 	// jmx_runtime
 	i = xdrInt(buf,i,2105);
-	i = xdrInt(buf,i,jmx_runtime_len);
-	i = xdrBytes(buf,i,vm_name,vm_name_pad,true);
-	i = xdrBytes(buf,i,vm_vendor,vm_vendor_pad,true);
-	i = xdrBytes(buf,i,vm_version,vm_version_pad,true);
+        opaque_len_idx = i;
+        i += 4;
+	i = xdrString(buf,i,vm_name,64);
+	i = xdrString(buf,i,vm_vendor,32);
+	i = xdrString(buf,i,vm_version,32);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// jmx_memory
 	i = xdrInt(buf,i,2106);
-	i = xdrInt(buf,i,jmx_memory_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrLong(buf,i,heapMemory.getInit());
 	i = xdrLong(buf,i,heapMemory.getUsed());
 	i = xdrLong(buf,i,heapMemory.getCommitted());
@@ -515,31 +505,49 @@ public class SFlowAgent extends Thread {
 	i = xdrLong(buf,i,nonHeapMemory.getUsed());
 	i = xdrLong(buf,i,nonHeapMemory.getCommitted());
 	i = xdrLong(buf,i,nonHeapMemory.getMax());
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// jmx_garbagecollector
 	i = xdrInt(buf,i,2107);
-	i = xdrInt(buf,i,jmx_gc_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrInt(buf,i,gcCount);
 	i = xdrInt(buf,i,gcTime);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// jmx_classloading
 	i = xdrInt(buf,i,2108);
-	i = xdrInt(buf,i,jmx_classloading_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrInt(buf,i,(int)classLoadingMX.getLoadedClassCount());
 	i = xdrInt(buf,i,(int)classLoadingMX.getTotalLoadedClassCount());
 	i = xdrInt(buf,i,(int)classLoadingMX.getUnloadedClassCount());
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// jmx_compliation
 	i = xdrInt(buf,i,2109);
-	i = xdrInt(buf,i,jmx_compilation_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrInt(buf,i,(int)compilationTime);
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
 
 	// jmx_thread
 	i = xdrInt(buf,i,2110);
-	i = xdrInt(buf,i,jmx_thread_len);
+        opaque_len_idx = i;
+        i += 4;
 	i = xdrInt(buf,i,threadMX.getThreadCount());
 	i = xdrInt(buf,i,threadMX.getDaemonThreadCount());
 	i = xdrInt(buf,i,(int)threadMX.getTotalStartedThreadCount());
+        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
+        sample_nrecs++;
+
+        // fill in sample length and record count
+        xdrInt(buf,sample_len_idx, i - sample_len_idx - 4);
+        xdrInt(buf,sample_nrecs_idx, sample_nrecs);
  
 	return i;
     }
