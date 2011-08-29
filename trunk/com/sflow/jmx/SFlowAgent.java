@@ -104,7 +104,6 @@ public class SFlowAgent extends Thread {
 
     private int agentSequenceNo = 0;
     private int counterSequenceNo = 0;
-    private long agentStartTime = 0L;
 
     private DatagramSocket socket = null;
 
@@ -570,8 +569,6 @@ public class SFlowAgent extends Thread {
     private long lastPollCounters = 0L;
 
     public void run() {
-
-	agentStartTime = System.currentTimeMillis();
 
 	try { socket = new DatagramSocket(); }
 	catch(SocketException e) {}
