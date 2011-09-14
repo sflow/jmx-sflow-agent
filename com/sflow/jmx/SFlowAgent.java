@@ -332,17 +332,6 @@ public class SFlowAgent extends Thread {
 	return i;
     }
 
-    static final int host_parent_len = 8;
-    static final int virt_cpu_len = 12;
-    static final int virt_memory_len = 16;
-    static final int jmx_memory_len =64;
-    static final int jmx_gc_len = 8;
-    static final int jmx_classloading_len = 12;
-    static final int jmx_compilation_len = 4;
-    static final int jmx_thread_len = 12;
-
-    static final int num_counter_records = 10;
-
     private long totalThreadTime = 0L;
     private HashMap<Long,Long> prevThreadCpuTime = null;
     static final int counter_data_len = 512;
@@ -493,7 +482,7 @@ public class SFlowAgent extends Thread {
         xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
         sample_nrecs++;
 
-	// jmx_memory
+	// jmx_statistics
 	i = xdrInt(buf,i,2106);
         opaque_len_idx = i;
         i += 4;
@@ -505,40 +494,12 @@ public class SFlowAgent extends Thread {
 	i = xdrLong(buf,i,nonHeapMemory.getUsed());
 	i = xdrLong(buf,i,nonHeapMemory.getCommitted());
 	i = xdrLong(buf,i,nonHeapMemory.getMax());
-        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
-        sample_nrecs++;
-
-	// jmx_garbagecollector
-	i = xdrInt(buf,i,2107);
-        opaque_len_idx = i;
-        i += 4;
 	i = xdrInt(buf,i,gcCount);
 	i = xdrInt(buf,i,gcTime);
-        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
-        sample_nrecs++;
-
-	// jmx_classloading
-	i = xdrInt(buf,i,2108);
-        opaque_len_idx = i;
-        i += 4;
 	i = xdrInt(buf,i,(int)classLoadingMX.getLoadedClassCount());
 	i = xdrInt(buf,i,(int)classLoadingMX.getTotalLoadedClassCount());
 	i = xdrInt(buf,i,(int)classLoadingMX.getUnloadedClassCount());
-        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
-        sample_nrecs++;
-
-	// jmx_compliation
-	i = xdrInt(buf,i,2109);
-        opaque_len_idx = i;
-        i += 4;
 	i = xdrInt(buf,i,(int)compilationTime);
-        xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
-        sample_nrecs++;
-
-	// jmx_thread
-	i = xdrInt(buf,i,2110);
-        opaque_len_idx = i;
-        i += 4;
 	i = xdrInt(buf,i,threadMX.getThreadCount());
 	i = xdrInt(buf,i,threadMX.getDaemonThreadCount());
 	i = xdrInt(buf,i,(int)threadMX.getTotalStartedThreadCount());
