@@ -472,7 +472,7 @@ public class SFlowAgent extends Thread {
 	// Currently no JMX bena providing JVM network I/O stats
 	// Note: sFlow sub-agent on host OS provides overall network I/O stats
 
-	// jmx_runtime
+	// jvm_runtime
 	i = xdrInt(buf,i,2105);
         opaque_len_idx = i;
         i += 4;
@@ -482,7 +482,7 @@ public class SFlowAgent extends Thread {
         xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
         sample_nrecs++;
 
-	// jmx_statistics
+	// jvm_statistics
 	i = xdrInt(buf,i,2106);
         opaque_len_idx = i;
         i += 4;
@@ -516,7 +516,7 @@ public class SFlowAgent extends Thread {
     public void pollCounters(long now) {
 	if(agentAddress == null) return;
 
-	byte[] buf = new byte[header_len + 1 + counter_data_len];
+	byte[] buf = new byte[header_len + 4 + counter_data_len];
 
 	int i = 0;
 
