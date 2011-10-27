@@ -102,8 +102,8 @@ public class SFlowAgent extends Thread {
       return dsIndex;
     }
 
-    private int agentSequenceNo = 0;
-    private int counterSequenceNo = 0;
+    private long agentSequenceNo = 0L;
+    private long counterSequenceNo = 0L;
 
     private DatagramSocket socket = null;
 
@@ -143,7 +143,7 @@ public class SFlowAgent extends Thread {
 		    else if("agentIP".equals(key)) agentIP = value;
                     else if("ds_index".equals(key)) parent = value;
 		    else if("collector".equals(key)) {
-			if(collectors == null) collectors = new ArrayList();
+			if(collectors == null) collectors = new ArrayList<String>();
 			collectors.add(value);
 		    }
 		    else if("rev_end".equals(key)) rev_end = value;
@@ -180,7 +180,7 @@ public class SFlowAgent extends Thread {
 
 	    // set collectors
 	    if(collectors != null) {
-		ArrayList<InetSocketAddress> newSockets = new ArrayList();
+		ArrayList<InetSocketAddress> newSockets = new ArrayList<InetSocketAddress>();
 		for(String socketStr : collectors) {
 		    String[] parts = socketStr.split(" ");
 		    InetAddress addr = null;
@@ -205,7 +205,7 @@ public class SFlowAgent extends Thread {
 
     public static int pad(int len) { return (4 - len) & 3; }
 
-    public static int xdrInt(byte[] buf,int offset,int val) {
+    public static int xdrInt(byte[] buf,int offset,long val) {
 	int i = offset;
 	buf[i++] = (byte)(val >>> 24);
 	buf[i++] = (byte)(val >>> 16);
@@ -350,8 +350,8 @@ public class SFlowAgent extends Thread {
 	String vm_version = runtimeMX.getVmVersion();
 
 	List<GarbageCollectorMXBean> gcMXList = ManagementFactory.getGarbageCollectorMXBeans();
-        int gcCount = 0;
-        int gcTime = 0;
+        long gcCount = 0;
+        long gcTime = 0;
         for(GarbageCollectorMXBean gcMX : gcMXList)  {
           gcCount += gcMX.getCollectionCount();
           gcTime += gcMX.getCollectionTime();
@@ -372,7 +372,7 @@ public class SFlowAgent extends Thread {
 	} else {
 	    if(threadMX.isThreadCpuTimeEnabled()) {
 		long[] ids = threadMX.getAllThreadIds();
-		HashMap<Long,Long> threadCpuTime = new HashMap();
+		HashMap<Long,Long> threadCpuTime = new HashMap<Long,Long>();
 		for(int t = 0; t < ids.length; t++) {
 		    long id = ids[t];
 		    if(id >= 0) {
@@ -404,6 +404,13 @@ public class SFlowAgent extends Thread {
 	long maxMemory = heapMemory.getMax() + nonHeapMemory.getCommitted(); 
 
 	ClassLoadingMXBean classLoadingMX = ManagementFactory.getClassLoadingMXBean();
+
+        long fd_open_count = 0L;
+	long fd_max_count = 0L;
+        if(osMX instanceof com.sun.management.UnixOperatingSystemMXBean) {
+           fd_open_count = ((com.sun.management.UnixOperatingSystemMXBean)osMX).getOpenFileDescriptorCount();
+           fd_max_count = ((com.sun.management.UnixOperatingSystemMXBean)osMX).getMaxFileDescriptorCount();
+        }
 
 	// sample_type = counter_sample
 	i = xdrInt(buf,i,2);
@@ -496,13 +503,15 @@ public class SFlowAgent extends Thread {
 	i = xdrLong(buf,i,nonHeapMemory.getMax());
 	i = xdrInt(buf,i,gcCount);
 	i = xdrInt(buf,i,gcTime);
-	i = xdrInt(buf,i,(int)classLoadingMX.getLoadedClassCount());
-	i = xdrInt(buf,i,(int)classLoadingMX.getTotalLoadedClassCount());
-	i = xdrInt(buf,i,(int)classLoadingMX.getUnloadedClassCount());
-	i = xdrInt(buf,i,(int)compilationTime);
+	i = xdrInt(buf,i,classLoadingMX.getLoadedClassCount());
+	i = xdrInt(buf,i,classLoadingMX.getTotalLoadedClassCount());
+	i = xdrInt(buf,i,classLoadingMX.getUnloadedClassCount());
+	i = xdrInt(buf,i,compilationTime);
 	i = xdrInt(buf,i,threadMX.getThreadCount());
 	i = xdrInt(buf,i,threadMX.getDaemonThreadCount());
-	i = xdrInt(buf,i,(int)threadMX.getTotalStartedThreadCount());
+	i = xdrInt(buf,i,threadMX.getTotalStartedThreadCount());
+        i = xdrInt(buf,i,fd_open_count);
+        i = xdrInt(buf,i,fd_max_count);
         xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
         sample_nrecs++;
 
