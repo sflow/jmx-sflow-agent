@@ -102,8 +102,8 @@ public class SFlowAgent extends Thread {
       return dsIndex;
     }
 
-    private long agentSequenceNo = 0L;
-    private long counterSequenceNo = 0L;
+    private int agentSequenceNo = 0;
+    private int counterSequenceNo = 0;
 
     private DatagramSocket socket = null;
 
@@ -205,7 +205,7 @@ public class SFlowAgent extends Thread {
 
     public static int pad(int len) { return (4 - len) & 3; }
 
-    public static int xdrInt(byte[] buf,int offset,long val) {
+    public static int xdrInt(byte[] buf,int offset,int val) {
 	int i = offset;
 	buf[i++] = (byte)(val >>> 24);
 	buf[i++] = (byte)(val >>> 16);
@@ -501,17 +501,17 @@ public class SFlowAgent extends Thread {
 	i = xdrLong(buf,i,nonHeapMemory.getUsed());
 	i = xdrLong(buf,i,nonHeapMemory.getCommitted());
 	i = xdrLong(buf,i,nonHeapMemory.getMax());
-	i = xdrInt(buf,i,gcCount);
-	i = xdrInt(buf,i,gcTime);
-	i = xdrInt(buf,i,classLoadingMX.getLoadedClassCount());
-	i = xdrInt(buf,i,classLoadingMX.getTotalLoadedClassCount());
-	i = xdrInt(buf,i,classLoadingMX.getUnloadedClassCount());
-	i = xdrInt(buf,i,compilationTime);
-	i = xdrInt(buf,i,threadMX.getThreadCount());
-	i = xdrInt(buf,i,threadMX.getDaemonThreadCount());
-	i = xdrInt(buf,i,threadMX.getTotalStartedThreadCount());
-        i = xdrInt(buf,i,fd_open_count);
-        i = xdrInt(buf,i,fd_max_count);
+	i = xdrInt(buf,i,(int)gcCount);
+	i = xdrInt(buf,i,(int)gcTime);
+	i = xdrInt(buf,i,(int)classLoadingMX.getLoadedClassCount());
+	i = xdrInt(buf,i,(int)classLoadingMX.getTotalLoadedClassCount());
+	i = xdrInt(buf,i,(int)classLoadingMX.getUnloadedClassCount());
+	i = xdrInt(buf,i,(int)compilationTime);
+	i = xdrInt(buf,i,(int)threadMX.getThreadCount());
+	i = xdrInt(buf,i,(int)threadMX.getDaemonThreadCount());
+	i = xdrInt(buf,i,(int)threadMX.getTotalStartedThreadCount());
+        i = xdrInt(buf,i,(int)fd_open_count);
+        i = xdrInt(buf,i,(int)fd_max_count);
         xdrInt(buf,opaque_len_idx, i - opaque_len_idx - 4);
         sample_nrecs++;
 
