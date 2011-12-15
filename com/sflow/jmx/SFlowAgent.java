@@ -568,6 +568,8 @@ public class SFlowAgent extends Thread {
 
 	running = true;
 	task = new SFlowAgent();
+        task.setDaemon(true);
+        task.setName("sFlow JVM Thread");
 	task.setPriority(Thread.MIN_PRIORITY);
 	task.start();
     }  
