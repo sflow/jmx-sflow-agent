@@ -51,7 +51,7 @@ public class SFlowAgent extends Thread {
     public static UUID myUUID        = null;
     public static String myHostname  = null;
 
-    private static int dsIndex       = DEFAULT_DS_INDEX;
+    private static int dsIndex       = -1;
     private static int parentDsIndex = -1;
 
     public static void configFile(String fn) {
