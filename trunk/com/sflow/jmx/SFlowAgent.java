@@ -476,7 +476,7 @@ public class SFlowAgent extends Thread {
 
 	// virt_net_io
 	// i = xdrInt(buf,i,2104);
-	// Currently no JMX bena providing JVM network I/O stats
+	// Currently no JMX bean providing JVM network I/O stats
 	// Note: sFlow sub-agent on host OS provides overall network I/O stats
 
 	// jvm_runtime
@@ -548,8 +548,8 @@ public class SFlowAgent extends Thread {
 	    if(pollingInterval > 0L) {
 		long now = System.currentTimeMillis();
 		if((now - lastPollCounters) > pollingInterval) {
-		    lastPollCounters = now;
 		    pollCounters(now);
+                    lastPollCounters = now;
 		}
 	    }
 
