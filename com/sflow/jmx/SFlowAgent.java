@@ -228,7 +228,7 @@ public class SFlowAgent extends Thread {
     }
 
     public static byte[] stringToBytes(String string, int maxLen) {
-	CharsetEncoder enc = Charset.forName("UTF8").newEncoder();
+	CharsetEncoder enc = Charset.forName("US-ASCII").newEncoder();
 	enc.onMalformedInput(CodingErrorAction.REPORT);
 	enc.onUnmappableCharacter(CodingErrorAction.REPLACE);
 	byte[] bytes = null;
