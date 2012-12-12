@@ -114,7 +114,10 @@ public class SFlowAgent extends Thread {
     // update configuration
     private void updateConfig() {
 	File file = new File(configFile);
-	if(!file.exists()) return;
+	if(!file.exists()) {
+            pollingInterval = 0L;
+            return;
+        }
 
 	long modified = file.lastModified();
 	if(modified == lastConfigFileChange) return;
@@ -503,12 +506,12 @@ public class SFlowAgent extends Thread {
 	i = xdrLong(buf,i,nonHeapMemory.getMax());
 	i = xdrInt(buf,i,(int)gcCount);
 	i = xdrInt(buf,i,(int)gcTime);
-	i = xdrInt(buf,i,(int)classLoadingMX.getLoadedClassCount());
+	i = xdrInt(buf,i,classLoadingMX.getLoadedClassCount());
 	i = xdrInt(buf,i,(int)classLoadingMX.getTotalLoadedClassCount());
 	i = xdrInt(buf,i,(int)classLoadingMX.getUnloadedClassCount());
 	i = xdrInt(buf,i,(int)compilationTime);
-	i = xdrInt(buf,i,(int)threadMX.getThreadCount());
-	i = xdrInt(buf,i,(int)threadMX.getDaemonThreadCount());
+	i = xdrInt(buf,i,threadMX.getThreadCount());
+	i = xdrInt(buf,i,threadMX.getDaemonThreadCount());
 	i = xdrInt(buf,i,(int)threadMX.getTotalStartedThreadCount());
         i = xdrInt(buf,i,(int)fd_open_count);
         i = xdrInt(buf,i,(int)fd_max_count);
