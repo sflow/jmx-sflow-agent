@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- Ant build file for sFlow-RT -->
+<!-- Ant build file for jmx-sflow-agent -->
 
 <project name="jmx-sflow-agent" basedir="." default="jar">
   <property name="version" value="0.5.6" />
