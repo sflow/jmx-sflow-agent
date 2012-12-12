@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Ant build file for sFlow-RT -->
+
+<project name="jmx-sflow-agent" basedir="." default="jar">
+  <property name="version" value="0.5.6" />
+  <property name="jar.filename" value="sflowagent.jar" />
+  <property name="premain.class" value="com.sflow.jmx.SFlowAgent" />
+  <property name="java.level" value="1.5" />
+
+  <property name="build.dir" value="build" />
+  <property name="src.dir" value="src" />
+  <property name="jar.file" value="${build.dir}/${jar.filename}" />
+  <property name="deploy.tar.file" value="sflowagent-${version}.tar.gz" />
+  
+  <fileset id="build.fileset" dir="${build.dir}">
+    <include name="**/*.class" />
+  </fileset>
+
+  <target name="init">
+    <mkdir dir="${build.dir}" />
+  </target>
+
+  <target name="clean">
+    <delete dir="${build.dir}" />
+  </target>
+
+  <target name="compile" depends="init">
+     <javac destdir="${build.dir}" includeantruntime="false"
+            debug="on" debuglevel="lines,source" optimize="on"
+            source="${java.level}" target="${java.level}">
+         <src path="${src.dir}" />
+         <compilerarg value="-Xlint" />
+     </javac>
+  </target>
+
+  <target name="jar" depends="compile">
+    <jar destfile="${jar.file}">
+      <fileset refid="build.fileset"/>
+      <manifest>
+        <attribute name="Premain-Class" value="${premain.class}"/>
+      </manifest>
+    </jar>
+  </target>
+
+  <target name="dist" depends="jar">
+    <copy file="LICENSE" todir="${build.dir}" />
+    <tar destfile="${deploy.tar.file}" compression="gzip"
+         basedir="${build.dir}" includes="${jar.filename},LICENSE"/>
+  </target>
+</project>
