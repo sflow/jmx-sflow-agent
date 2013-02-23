@@ -369,7 +369,9 @@ public class SFlowAgent extends Thread {
 	long cpuTime = 0L;
 	ThreadMXBean threadMX = ManagementFactory.getThreadMXBean();
 	OperatingSystemMXBean osMX = ManagementFactory.getOperatingSystemMXBean();
-	if (osMX instanceof com.sun.management.OperatingSystemMXBean) {
+        String className = osMX.getClass().getName();
+        if("com.sun.management.OperatingSystem".equals(className)
+           || "com.sun.management.UnixOperatingSystem".equals(className)) {
 	    cpuTime = ((com.sun.management.OperatingSystemMXBean)osMX).getProcessCpuTime();
 	    cpuTime /= 1000000L;
 	} else {
