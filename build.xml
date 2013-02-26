@@ -3,7 +3,7 @@
 <!-- Ant build file for jmx-sflow-agent -->
 
 <project name="jmx-sflow-agent" basedir="." default="jar">
-  <property name="version" value="0.5.6" />
+  <property name="version" value="0.5.8" />
   <property name="jar.filename" value="sflowagent.jar" />
   <property name="premain.class" value="com.sflow.jmx.SFlowAgent" />
   <property name="java.level" value="1.5" />

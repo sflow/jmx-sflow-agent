@@ -412,7 +412,7 @@ public class SFlowAgent extends Thread {
 
         long fd_open_count = 0L;
 	long fd_max_count = 0L;
-        if(osMX instanceof com.sun.management.UnixOperatingSystemMXBean) {
+        if("com.sun.management.UnixOperatingSystem".equals(className)) {
            fd_open_count = ((com.sun.management.UnixOperatingSystemMXBean)osMX).getOpenFileDescriptorCount();
            fd_max_count = ((com.sun.management.UnixOperatingSystemMXBean)osMX).getMaxFileDescriptorCount();
         }
