@@ -3,15 +3,16 @@
 <!-- Ant build file for jmx-sflow-agent -->
 
 <project name="jmx-sflow-agent" basedir="." default="jar">
-  <property name="version" value="0.5.8" />
+  <property name="version" value="1.0.0" />
   <property name="jar.filename" value="sflowagent.jar" />
   <property name="premain.class" value="com.sflow.jmx.SFlowAgent" />
-  <property name="java.level" value="1.5" />
+  <property name="java.level" value="1.7" />
 
   <property name="build.dir" value="build" />
   <property name="src.dir" value="src" />
+  <property name="dist.dir" value="dist" />
   <property name="jar.file" value="${build.dir}/${jar.filename}" />
-  <property name="deploy.tar.file" value="sflowagent-${version}.tar.gz" />
+  <property name="deploy.tar.file" value="${dist.dir}/sflowagent-${version}.tar.gz" />
   
   <fileset id="build.fileset" dir="${build.dir}">
     <include name="**/*.class" />
@@ -19,10 +20,12 @@
 
   <target name="init">
     <mkdir dir="${build.dir}" />
+    <mkdir dir="${dist.dir}" />
   </target>
 
   <target name="clean">
     <delete dir="${build.dir}" />
+    <delete dir="${dist.dir}" />
   </target>
 
   <target name="compile" depends="init">
