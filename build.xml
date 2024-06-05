@@ -6,7 +6,7 @@
   <property name="version" value="1.0.0" />
   <property name="jar.filename" value="sflowagent.jar" />
   <property name="premain.class" value="com.sflow.jmx.SFlowAgent" />
-  <property name="java.level" value="1.7" />
+  <property name="java.level" value="1.8" />
 
   <property name="build.dir" value="build" />
   <property name="src.dir" value="src" />
